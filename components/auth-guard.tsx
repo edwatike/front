@@ -14,6 +14,7 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
     checkAuth()
@@ -21,8 +22,10 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
 
   async function checkAuth() {
     try {
-      const response = await fetch("/api/auth/status")
+      setAuthError(null)
+      const response = await fetch("/api/auth/status", { cache: "no-store" })
       const data = await response.json().catch(() => ({ authenticated: false }))
+
       if (response.ok && data.authenticated) {
         const role = (data?.user?.role as "admin" | "moderator" | "user" | undefined) || "user"
         const canAccessModerator = Boolean(data?.user?.can_access_moderator)
@@ -50,14 +53,20 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
           return
         }
         setIsAuthenticated(true)
-      } else {
+      } else if (response.status === 401 || response.status === 403 || (response.ok && !data?.authenticated)) {
         // Сохраняем текущий путь для редиректа после логина
         const currentPath = window.location.pathname + window.location.search
         router.push(`/login?redirect=${encodeURIComponent(currentPath)}`)
+      } else {
+        const message =
+          (typeof (data as any)?.error === "string" && (data as any).error) ||
+          (typeof (data as any)?.detail === "string" && (data as any).detail) ||
+          `Auth check failed: HTTP ${response.status}`
+        setAuthError(message)
       }
     } catch (error) {
       console.error("Auth check failed:", error)
-      router.push("/login")
+      setAuthError(error instanceof Error ? error.message : String(error))
     } finally {
       setIsLoading(false)
     }
@@ -80,6 +89,21 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }
 
   if (!isAuthenticated) {
+    if (authError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3 }}
+            className="text-center max-w-xl"
+          >
+            <p className="text-white text-lg mb-2">Ошибка проверки авторизации</p>
+            <p className="text-slate-300 text-sm break-words">{authError}</p>
+          </motion.div>
+        </div>
+      )
+    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <motion.div
